@@ -1,27 +1,36 @@
 async = require 'async'
 
-module.exports = (db, db2, toObjectId) ->
+module.exports = (db, db2, toObjectId, dbq) ->
 	db.bind "tb_module_oauth_member"
 	db.bind "tb_module_activity_awards_log"
 	db.bind "tb_module_activity_data"
 	db.bind "tb_module_member"
 	db.bind 'tb_module_oauth_guest'
 
+	__MODULE = '营销活动'
+
 	viewTypes =
-        0 : '刮刮卡'
-        1 : '大转盘'
-        2 : '老虎机'
-        3 : '大吉大利'
-        4 : '幸福满袋'
-        6 : '摇钱树'
+				0  : '刮刮卡'
+				1  : '大转盘'
+				2  : '老虎机'
+				3  : '大吉大利'
+				4  : '幸福满袋'
+				6  : '摇钱树'
+				7  : '赌大小'
+				8  : '捞金鱼'
+				9  : '求爱大作战'
+				10 : '扭扭蛋'
+				5  : '求爱大作战七夕版'
 
 	{
-		run : (time, callback) ->
+		run : (time, curTime, callback) ->
 			_time = new Date
 
-			console.log 'begin activity'
+			console.log __MODULE, 'begin'
 
 			getActivityType = (cb, rst) ->
+				console.log __MODULE, 'getActivityType'
+
 				db.tb_module_activity_data.find {}
 					, fields : ViewType : 1
 				.toArray (err, docs) ->
@@ -32,121 +41,174 @@ module.exports = (db, db2, toObjectId) ->
 					cb err, types
 
 			getMembers = (cb, rst)->
+				console.log __MODULE, 'getMembers'
+
 				db.tb_module_activity_awards_log.aggregate [
-					{ $match : AddTime : $gt : time }
+					{ $match : $and: [{AddTime: $gt : time}, {AddTime: $lt: curTime}] }
 					{ $group :
-							_id      : '$MemberID'
+							_id      :
+								MemberID : '$MemberID'
+								TID 		 : '$TID'
 							Contacts : $addToSet : { Name : '$Contact', Mobile : '$Mobile' }
-							TIDs     : $addToSet : '$TID'
 							Tags		 : $addToSet : '$ActivityID'
 							LogIds   : $push : '$_id'
 					}
-				], (err, docs) ->
-					members = {}
+					{ $out: 'tmp_activity_member' }
+				], (err) ->
+					db.bind 'tmp_activity_member'
 
-					docs.forEach (m) ->
-						members[m._id] =
-							MemberID : m._id
-							Contacts : m.Contacts.filter (mm) -> mm.Name
-							TIDs     : m.TIDs
-							Tags     : m.Tags.map (tag) -> rst.types[tag]
-							LogIds   : m.LogIds
+					db.tmp_activity_member.find({}).toArray (err, docs) ->
+						members = {}
 
-					cb err, members
+						docs.forEach (m) ->
+							members[JSON.stringify(m._id)] =
+								MemberID : m._id.MemberID
+								TID      : m._id.TID
+								Contacts : m.Contacts.filter (mm) -> mm.Name
+								Tags     : m.Tags.map (tag) -> rst.types[tag]
+								LogIds   : m.LogIds
+
+						cb err, members
 
 			updateOpenids = (cb, rst) ->
+				console.log __MODULE, 'updateOpenids'
+
 				ids = (m.MemberID for k, m of rst.members)
 
 				async.auto [
 					(cb2) ->
-						db.tb_module_member.aggregate [
-							{ $match : _id : $in : ids }
-							{ $unwind : '$OAuth' }
-							{ 
-								$group :
-									_id       : '$OAuth.OpenID'
-									MemberIDs : $addToSet : '$_id'
-									NickName : $last : '$NickName'
-							}
-						], (err, docs) ->
-							docs = docs.map (m) ->
-								contacts = []
-								tIds     = []
-								tags     = []
-								logIds   = []
+						db.bind 'tmp_activity_openid'
 
-								m.MemberIDs.forEach (mid) ->
-									member = rst.members[mid]
-									member.Contacts.forEach (c) -> contacts.push c
-									member.TIDs.forEach (tid) -> tIds.push tid
-									member.Tags.forEach (tag) -> tags.push tag
-									member.LogIds.forEach (lid) -> logIds.push lid
-
-								{
-									OpenId   : m._id
-									NickName : m.NickName
-									Contacts : contacts
-									TIDs     : tIds
-									Tags     : tags
-									LogIds   : logIds
+						db.tmp_activity_openid.remove ->
+							db.tb_module_member.aggregate [
+								{ $match : _id : $in : ids }
+								{ $unwind : '$OAuth' }
+								{ 
+									$group :
+										_id       : 
+											OpenId : '$OAuth.OpenID'
+											TID    : '$TID'
+										MemberIDs    : $addToSet : '$_id'               
+										NickName     : $last : '$NickName'            
+										FaceImageUrl : $last : '$FaceImageUrl'
+										Sex          : $last : '$Sex'
 								}
-							cb2 err, docs
+								{ $out: 'tmp_activity_openid' }
+							], (err) ->
+								db.tmp_activity_openid.find({}).toArray (err, docs) ->
+									docs = docs.map (m) ->
+										contacts = []
+										tIds     = []
+										tags     = []
+										logIds   = []
+
+										m.MemberIDs.forEach (mid) ->
+											member = rst.members[JSON.stringify({MemberID: mid, TID: m._id.TID})]
+											member.Contacts.forEach (c) -> contacts.push c
+											member.Tags.forEach (tag) -> tags.push tag
+											member.LogIds.forEach (lid) -> logIds.push lid
+
+										{
+											OpenId       : m._id.OpenId
+											TID          : m._id.TID
+											NickName     : m.NickName
+											FaceImageUrl : m.FaceImageUrl
+											Sex          : m.Sex
+											Contacts     : contacts
+											Tags         : tags
+											LogIds       : logIds
+										}
+
+									cb2 err, docs
 					(cb2) ->
 						db.tb_module_oauth_member.find
 							MemberID : $in : ids
 						.toArray (err, docs) ->
 							docs = docs.map (member) ->
+								_m = rst.members[JSON.stringify({MemberID: member.MemberID, TID: member.TID})] or {}
+
 								{
-									OpenId   : member.WxOpenID
-									NickName : member.RawData and member.RawData.nickname or ''
-									Contacts : rst.members[member.MemberID].Contacts
-									TIDs     : rst.members[member.MemberID].TIDs
-									Tags     : rst.members[member.MemberID].Tags
-									LogIds   : rst.members[member.MemberID].LogIds
+									OpenId       : member.WxOpenID
+									TID          : member.TID
+									NickName     : member.RawData and member.RawData.nickname or ''
+									FaceImageUrl : member.RawData and member.RawData.headimgurl or ''
+									Sex          : member.RawData and member.RawData.sex or ''
+									Contacts     : _m.Contacts
+									Tags         : _m.Tags
+									LogIds       : _m.LogIds
 								}
 							cb2 err, docs
 				], (err, rst2) ->
-					rst.members = rst2[0].concat rst2[1]
+					rst.members = rst2[1]
+
+					oids = {}
+					rst2[1].forEach (m) -> oids[m.OpenId] = 1
+
+					for member in rst2[0]
+						unless oids[member.OpenId]
+							rst.members.push member
 					cb err
 
 			updateLogs = (cb, rst) ->
-				async.each rst.members, (member, cbEach) ->
-					db.tb_module_activity_awards_log.find
-						_id : $in : member.LogIds
-					.toArray (err, logs) ->
-						logs = logs.map (log) ->
-							{
-								OpenId     : member.OpenId
-								AwardsId   : log.AwardsID
-								Mobile     : log.Mobile
-								Name       : log.Contact
-								AddTime    : log.AddTime
-								TID        : log.TID
-								DataId 		 : log.ActivityID
-								Type 			 : rst.types[log.ActivityID]
-							}
+				console.log __MODULE, 'updateLogs'
 
-						db2.logs.insert logs, cbEach
-				, (err) ->
-					cb err
+				rst.members.forEach (member) ->
+					if member.LogIds
+						dbq.push {
+							run: (cbQueue) ->
+								db.tb_module_activity_awards_log.find
+									_id : $in : member.LogIds
+								.toArray (err, logs) ->
+									logs = logs.map (log) ->
+										{
+											OpenId     : member.OpenId
+											AwardsId   : log.AwardsID
+											Mobile     : log.Mobile
+											Name       : log.Contact
+											AddTime    : log.AddTime
+											TID        : log.TID
+											DataId 		 : log.ActivityID
+											Type 			 : rst.types[log.ActivityID]
+										}
 
+									async.each logs, (log, cbEach) ->
+										db2.tb_module_scrm_logs.insert log, (err) ->
+											console.error __MODULE, 'updateLogs', err if err
+											cbEach()
+									, cbQueue
+
+
+									# db2.tb_module_scrm_logs.insert logs, (err) ->
+									# 	console.log __MODULE, 'updateLogs', err if err
+									# 	cbQueue err
+						}
+				cb()
 
 			updateMembers = (cb, rst) ->
-				async.each rst.members, (member, cbEach) ->
-					db2.members.update
-						OpenId : member.OpenId
-					,
-						$set :
-							OpenId   : member.OpenId
-							NickName : member.NickName
-						$addToSet :
-							Contacts : $each : member.Contacts
-							TIDs     : $each : member.TIDs
-							Tags		 : $each : member.Tags
-					, upsert : true
-					, cbEach
-				, cb
-
+				console.log __MODULE, 'updateMembers'
+				
+				rst.members.forEach (member) ->
+					dbq.push {
+						run: (cbQueue) ->
+							db2.tb_module_scrm_member.update
+								OpenId : member.OpenId
+								TID    : member.TID
+							,
+								$set :
+									OpenId       : member.OpenId
+									TID          : member.TID
+									NickName     : member.NickName
+									FaceImageUrl : member.FaceImageUrl
+									Sex          : member.Sex
+								$addToSet :
+									Contacts : $each : member.Contacts or []
+									Tags		 : $each : member.Tags or []
+							, upsert : true
+							, (err) ->
+								console.log __MODULE, 'updateMembers', err if err
+								cbQueue err
+							}
+				cb()
 
 			async.auto {
 				types 				: getActivityType
@@ -155,6 +217,12 @@ module.exports = (db, db2, toObjectId) ->
 				updateMembers : ['openids', updateMembers]
 				logs          : ['openids', 'types', updateLogs]
 			}, (err) ->
-				console.log 'end activity', new Date - _time
-				callback err
+				callback err if err
+
+				dbq.push {
+					run: (cbQueue) ->
+						callback()
+						cbQueue();
+						console.log 'end', __MODULE, new Date - _time, err
+				}
 	}

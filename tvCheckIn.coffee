@@ -1,21 +1,22 @@
 async = require 'async'
 
 module.exports = (db, db2, toObjectId, dbq) ->
-	db.bind 'tb_module_invitative_data'
-	db.bind 'tb_module_invitative_define'
+	db.bind 'tb_module_tv_module_checkin'
+	db.bind 'tb_module_tv_module_checkin_member'
+	db.bind 'tb_module_tv_module_checkin_awards'
 
-	__type   = '邀请函'
+	__type   = '微信机签到'
 
 	{
 		run : (time, curTime, callback) ->
 			_time = new Date
 
 			console.log __type, 'begin'
-			
+
 			getMembers = (cb) ->
 				console.log __type, 'getMembers'
 
-				db.tb_module_invitative_data.aggregate [
+				db.tb_module_tv_module_checkin_member.aggregate [
 					{ $match : $and: [{AddTime: $gt : time}, {AddTime: $lt: curTime}] }
 					{
 						$group :
@@ -33,7 +34,7 @@ module.exports = (db, db2, toObjectId, dbq) ->
 							GuestId  : member._id.GuestId
 							TID      : member._id.TID
 							Contacts : member.Contacts.filter (c) -> c.Name
-							LogIds   : member.LogIds
+							LogIds   : member.LogIds.distinct()
 
 					cb err, members
 
@@ -97,7 +98,7 @@ module.exports = (db, db2, toObjectId, dbq) ->
 					if member.LogIds
 						dbq.push {
 							run: (cbQueue) ->
-								db.tb_module_invitative_data.find
+								db.tb_module_tv_module_checkin_member.find
 									_id : $in : member.LogIds
 								.toArray (err, logs) ->
 									logs = logs.map (log) ->
@@ -107,7 +108,7 @@ module.exports = (db, db2, toObjectId, dbq) ->
 											Name       : log.Name
 											AddTime    : log.AddTime
 											TID        : log.TID
-											DataId 		 : log.InvitativeID
+											DataId 		 : log.CheckinID
 											Type 			 : __type
 										}
 
