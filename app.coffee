@@ -72,6 +72,15 @@ tvCheckIn = require('./tvCheckIn') db, db2, toObjectId, dbq
 # 颠球大赛
 tap = require('./tap') db, db2, toObjectId, dbq
 
+# 会员卡
+memberCard = require('./memberCard') db, db2, toObjectId, dbq
+
+# 约车
+bookcar = require('./bookcar') db, db2, toObjectId, dbq
+
+# 车队PK赛
+crewbattle = require('./crewbattle') db, db2, toObjectId, dbq
+
 updateMembersNameMobile = ->
   console.log 'begin update members name and mobile'
   dbq.___count++
@@ -155,20 +164,21 @@ updateVisitorIds = (done)->
         console.log 'openIds', rst.openIds.length, 'guests', docs.length
 
         docs.forEach (doc) ->
-          dbq.push {
-            run: (cbQueue) ->
-              db2.tb_module_scrm_member.update
-                OpenId : doc.RawData.openid
-              ,
-                $addToSet :
-                  PiwikVisitorIDs : $each : doc.PiwikVisitorID or []
-              ,
-                upsert : true
-                multi  : true
-              , (err) ->
-                console.log 'updateVisitorIds guest', err if err
-                cbQueue err
-          }
+          if doc.RawData and doc.RawData.openid
+            dbq.push {
+              run: (cbQueue) ->
+                db2.tb_module_scrm_member.update
+                  OpenId : doc.RawData.openid
+                ,
+                  $addToSet :
+                    PiwikVisitorIDs : $each : doc.PiwikVisitorID or []
+                ,
+                  upsert : true
+                  multi  : true
+                , (err) ->
+                  console.log 'updateVisitorIds guest', err if err
+                  cbQueue err
+            }
         dbq.push {
           run: (cbQueue) ->
             cb()
@@ -208,13 +218,6 @@ tmpLogs = (time, cb) ->
             ], 1, 0]
           lastActiveTime : $last: '$AddTime'
       }
-      # {
-      #   $match:
-      #     $or: [
-      #       { offline: $gt: 0 }
-      #       { online: $gt: 0 }
-      #     ]
-      # }
       { $out: 'tmp_analysis_logs' }
     ], cb
 
@@ -247,6 +250,9 @@ db.authenticate 'appmae', 'Aim123789', (err, rst) ->
       (cb) -> ugcgroup.run time, curTime, cb
       (cb) -> tvCheckIn.run time, curTime, cb
       (cb) -> tap.run time, curTime, cb
+      (cb) -> memberCard.run time, curTime, cb
+      (cb) -> bookcar.run time, curTime, cb
+      (cb) -> crewbattle.run time, curTime, cb
     ], (err) ->
       require('./openId2')(db, db2, toObjectId, dbq).run time, curTime, (err) ->
         console.log err

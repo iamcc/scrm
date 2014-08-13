@@ -38,11 +38,8 @@ module.exports = (db, db2, toObjectId, dbq) ->
 					cb err, visitorIds
 
 			getVisitsDetail = (cb, rst) ->
-				time    = moment(time*1000).format 'YYYY-MM-DD HH:mm:ss'
-				curTime = moment(curTime*1000).format 'YYYY-MM-DD HH:mm:ss'
-
-				# console.log time, curTime
-				# cnt = cnt2 = 0
+				time2    = moment(time*1000).format 'YYYY-MM-DD HH:mm:ss'
+				curTime2 = moment(curTime*1000).format 'YYYY-MM-DD HH:mm:ss'
 
 				rst.sites.forEach (site) ->
 					dbq.push {
@@ -54,7 +51,7 @@ module.exports = (db, db2, toObjectId, dbq) ->
 														piwik_log_visit
 													where
 														visit_last_action_time > ? and visit_last_action_time < ? and idsite = ?'
-							, [time, curTime, site.idsite]
+							, [time2, curTime2, site.idsite]
 							, (err, visits) ->
 								toSave = []
 
@@ -176,33 +173,6 @@ module.exports = (db, db2, toObjectId, dbq) ->
 												console.log 'save pages', err, cnt
 												cbEach err
 								, cbQueue
-
-
-
-								# 		db2.tb_module_scrm_member.update id._id, {$set: Pages: pages}, {}, (err, cnt) ->
-								# 			console.log err, cnt
-								# 			cbEach err
-								# , cbQueue
-
-
-
-
-							# db2.tmp_pages.find({}).toArray (err, docs) ->
-							# 	async.eachLimit docs, 10, (doc, cbEach) ->
-							# 		db2.tb_module_scrm_member.find({TID: doc._id.TID, OpenId: doc._id.OpenId}).toArray (err, member) ->
-							# 			member = member[0]
-							# 			member.Pages.forEach (page) ->
-							# 				doc.Pages.forEach (page2) ->
-							# 					if page.title == page2.title and page2.time > page.time
-							# 						page.time = page2.time
-							# 			db2.tb_module_scrm_member.save member, cbEach
-							# 	, cbQueue			
-
-
-								# 	db2.tb_module_scrm_member.update {TID: doc._id.TID, OpenId: doc._id.OpenId}
-								# 	, {$addToSet: Pages: $each: doc.Pages}
-								# 	, cbEach
-								# , cbQueue
 				}
 				dbq.push {
 					run: (cbQueue) ->
